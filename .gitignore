@@ -1,4 +1,4 @@
-# Build outputs
+# PyInstaller build artifacts
 /dist/
 /build/
 *.spec
@@ -8,23 +8,29 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+.Python
 
-# Excel temp/lock files
+# Temporary / lock files (Excel)
 ~$*
 
-# Local test outputs
+# Environment
+.env
+.venv/
+env/
+venv/
+
+# IDE / OS artifacts
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Generated output files (not part of source)
+Reporte_Masivo_*.xlsx
+Recibo_Caja_Menor_*.pdf
 test*.xlsx
 test*.pdf
-Recibo_Caja_Menor_*.pdf
-Reporte_Masivo_*.xlsx
-
-# Icon conversion
 recibo.ico
 
-# Env
-.env
-*.env
-
-# OS
-.DS_Store
-Thumbs.db
+# Keep the template but not working output
+# recibos_de_caja.xlsx is on the Desktop (excluded automatically)
