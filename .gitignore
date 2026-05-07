@@ -1,36 +1,36 @@
-# PyInstaller build artifacts
+# ─── PyInstaller build artifacts ──────────────────────────────
 /dist/
 /build/
 *.spec
 
-# Python cache
+# ─── Python cache ──────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
 
-# Temporary / lock files (Excel)
+# ─── SENSITIVE DATA — never commit these ──────────────────────
+*.xlsx
+*.xls
+*.csv
+*.pdf
+
+# ─── Temporary / lock files (Excel) ───────────────────────────
 ~$*
 
-# Environment
+# ─── Runtime config (user paths — machine specific) ───────────
+config.json
+
+# ─── Generated icons (built from recibo.png) ──────────────────
+recibo.ico
+
+# ─── Environment & IDE ─────────────────────────────────────────
 .env
 .venv/
 env/
 venv/
-
-# IDE / OS artifacts
 .vscode/
 .idea/
 *.DS_Store
 Thumbs.db
-
-# Generated output files (not part of source)
-Reporte_Masivo_*.xlsx
-Recibo_Caja_Menor_*.pdf
-test*.xlsx
-test*.pdf
-recibo.ico
-
-# Keep the template but not working output
-# recibos_de_caja.xlsx is on the Desktop (excluded automatically)

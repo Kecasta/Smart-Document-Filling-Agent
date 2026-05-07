@@ -1,44 +1,48 @@
 import os
 import sys
 import subprocess
-import datetime
+import json
 import threading
 import re
 
 # --- PORTABLE BASE DIR ---
-# Cuando está empaquetado como .exe, sys.frozen = True y los recursos
-# están en sys._MEIPASS. En desarrollo, usa el directorio del script.
 if getattr(sys, 'frozen', False):
     BASE_DIR = sys._MEIPASS
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.expanduser("~"), "caja_menor_config.json")
+
 def get_desktop_path():
-    """Lee la ruta real del Escritorio desde el registro de Windows.
-    Funciona aunque el Escritorio esté redirigido a OneDrive."""
     try:
         import winreg
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
-        )
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders")
         desktop, _ = winreg.QueryValueEx(key, "Desktop")
         winreg.CloseKey(key)
         return desktop
     except Exception:
         return os.path.join(os.path.expanduser("~"), "Desktop")
 
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_config(cfg):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
 # --- AUTO-INSTALL DEPENDENCIES ---
 def install_dependencies():
-    deps = {
-        'customtkinter': 'customtkinter',
-        'pandas': 'pandas',
-        'openpyxl': 'openpyxl',
-        'win32com': 'pywin32',
-        'num2words': 'num2words',
-        'tkcalendar': 'tkcalendar'
-    }
-    
+    deps = {'customtkinter': 'customtkinter', 'pandas': 'pandas', 'openpyxl': 'openpyxl',
+            'win32com': 'pywin32', 'num2words': 'num2words', 'tkcalendar': 'tkcalendar'}
     for module, package in deps.items():
         try:
             if module != 'win32com':
@@ -62,117 +66,168 @@ try:
 except ImportError:
     WIN32_AVAILABLE = False
 
-# --- CONFIGURATION ---
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
 
-# Plantilla de muestra (viaja junto al script o al .exe)
-TEMPLATE_PATH = os.path.join(BASE_DIR, "Formato_Caja_Menor_Logistica_Delfin.xlsx")
-
-# Archivo maestro: se detecta el Escritorio real (OneDrive o local)
 TARGET_PATH = os.path.join(get_desktop_path(), "recibos_de_caja.xlsx")
+
 
 class CajaMenorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        
         self.title("Logística Delfín S.A.S - Agente de Caja Menor")
-        self.geometry("850x650")
+        self.geometry("900x700")
         self.resizable(False, False)
-        
+
         ico_path = os.path.join(BASE_DIR, "recibo.ico")
         if os.path.exists(ico_path):
             self.iconbitmap(ico_path)
-        
-        import shutil
-        if not os.path.exists(TARGET_PATH):
-            if os.path.exists(TEMPLATE_PATH):
-                shutil.copy(TEMPLATE_PATH, TARGET_PATH)
-            else:
-                messagebox.showerror("Error", f"No se encontró la plantilla de muestra: {TEMPLATE_PATH}")
-        elif not os.path.exists(TEMPLATE_PATH):
-            messagebox.showerror("Error", f"Falta la plantilla de muestra: {TEMPLATE_PATH}")
-        
-        self.tabview = ctk.CTkTabview(self, width=800, height=600)
+
+        # Load persisted config
+        cfg = load_config()
+        self.template_path = ctk.StringVar(value=cfg.get("template_path", ""))
+        self.source_paths = cfg.get("source_paths", [])
+
+        self.tabview = ctk.CTkTabview(self, width=860, height=660)
         self.tabview.pack(padx=20, pady=20, fill="both", expand=True)
-        
+
         self.tab_masivo = self.tabview.add("Procesamiento Masivo")
         self.tab_manual = self.tabview.add("Generador Manual")
-        
+
         self.setup_tab_masivo()
         self.setup_tab_manual()
-        
-        self.archivos_seleccionados = []
-        
-    def setup_tab_masivo(self):
-        self.lbl_masivo = ctk.CTkLabel(self.tab_masivo, text="Automatización de Recibos Múltiples", font=ctk.CTkFont(size=20, weight="bold"))
-        self.lbl_masivo.pack(pady=(10, 10))
-        
-        self.btn_auto = ctk.CTkButton(self.tab_masivo, text="Proceso Automático (Cuenta Bancolombia + Caja Menor)", 
-                                      command=self.procesar_automatico, height=45, fg_color="#b8860b", hover_color="#8b6508", font=ctk.CTkFont(weight="bold"))
-        self.btn_auto.pack(pady=10)
-        
-        ctk.CTkLabel(self.tab_masivo, text="--- O ---", text_color="gray").pack(pady=5)
-        
-        self.btn_seleccionar = ctk.CTkButton(self.tab_masivo, text="Agregar Archivos Personalizados (.xlsx, .csv)", command=self.seleccionar_archivos, height=35)
-        self.btn_seleccionar.pack(pady=10)
-        
-        self.txt_archivos = ctk.CTkTextbox(self.tab_masivo, width=650, height=80)
-        self.txt_archivos.pack(pady=10)
-        self.txt_archivos.insert("0.0", "Ningún archivo seleccionado.")
-        self.txt_archivos.configure(state="disabled")
-        
-        self.btn_generar_masivo = ctk.CTkButton(self.tab_masivo, text="Agregar al Formato Original", command=self.generar_masivo, height=45, fg_color="green", hover_color="darkgreen")
-        self.btn_generar_masivo.pack(pady=20)
-        
-        self.lbl_status_masivo = ctk.CTkLabel(self.tab_masivo, text="", text_color="gray")
-        self.lbl_status_masivo.pack(pady=5)
 
+    # ─────────────────────────────── TAB MASIVO ───────────────────────────────
+    def setup_tab_masivo(self):
+        ctk.CTkLabel(self.tab_masivo, text="Automatización de Recibos Múltiples",
+                     font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(10, 6))
+
+        # --- Plantilla card ---
+        card_t = ctk.CTkFrame(self.tab_masivo)
+        card_t.pack(fill="x", padx=30, pady=6)
+        ctk.CTkLabel(card_t, text="1 · Plantilla (Formato Excel)", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        row_t = ctk.CTkFrame(card_t, fg_color="transparent")
+        row_t.pack(fill="x", padx=12, pady=(0, 8))
+        self.lbl_template = ctk.CTkLabel(row_t, text=self._short(self.template_path.get()), text_color="gray", anchor="w")
+        self.lbl_template.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(row_t, text="📂 Seleccionar Plantilla", width=180, command=self.cargar_plantilla).pack(side="right")
+
+        # --- Fuente de datos card ---
+        card_d = ctk.CTkFrame(self.tab_masivo)
+        card_d.pack(fill="x", padx=30, pady=6)
+        ctk.CTkLabel(card_d, text="2 · Archivos de Datos (Excel / CSV)", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=12, pady=(8, 2))
+        row_d = ctk.CTkFrame(card_d, fg_color="transparent")
+        row_d.pack(fill="x", padx=12, pady=(0, 6))
+        self.lbl_sources = ctk.CTkLabel(row_d, text=self._sources_summary(), text_color="gray", anchor="w", wraplength=540)
+        self.lbl_sources.pack(side="left", fill="x", expand=True)
+        btns = ctk.CTkFrame(row_d, fg_color="transparent")
+        btns.pack(side="right")
+        ctk.CTkButton(btns, text="📂 Agregar Archivos", width=150, command=self.cargar_fuentes).pack(pady=2)
+        ctk.CTkButton(btns, text="🗑 Limpiar", width=150, fg_color="gray", hover_color="#555",
+                      command=self.limpiar_fuentes).pack(pady=2)
+
+        # --- Acciones ---
+        actions = ctk.CTkFrame(self.tab_masivo, fg_color="transparent")
+        actions.pack(pady=10)
+        ctk.CTkButton(actions, text="⚡ Proceso Automático (Detectar archivos en carpeta)", height=42,
+                      fg_color="#b8860b", hover_color="#8b6508", font=ctk.CTkFont(weight="bold"),
+                      command=self.procesar_automatico).pack(pady=4)
+        self.btn_generar_masivo = ctk.CTkButton(actions, text="✅ Generar Recibos", height=42,
+                                                fg_color="green", hover_color="darkgreen",
+                                                command=self.generar_masivo)
+        self.btn_generar_masivo.pack(pady=4)
+
+        self.lbl_status_masivo = ctk.CTkLabel(self.tab_masivo, text="", text_color="gray")
+        self.lbl_status_masivo.pack(pady=4)
+
+    # ─────────────────────────────── TAB MANUAL ───────────────────────────────
     def setup_tab_manual(self):
-        self.lbl_manual = ctk.CTkLabel(self.tab_manual, text="Generación de Recibo Único", font=ctk.CTkFont(size=20, weight="bold"))
-        self.lbl_manual.pack(pady=(10, 20))
-        
+        ctk.CTkLabel(self.tab_manual, text="Generación de Recibo Único",
+                     font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(10, 6))
+
+        # Plantilla selector (shared)
+        card_t = ctk.CTkFrame(self.tab_manual)
+        card_t.pack(fill="x", padx=30, pady=6)
+        row_t = ctk.CTkFrame(card_t, fg_color="transparent")
+        row_t.pack(fill="x", padx=12, pady=8)
+        self.lbl_template_manual = ctk.CTkLabel(row_t, textvariable=self.template_path, text_color="gray", anchor="w")
+        self.lbl_template_manual.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(row_t, text="📂 Plantilla", width=150, command=self.cargar_plantilla).pack(side="right")
+
         form_frame = ctk.CTkFrame(self.tab_manual, fg_color="transparent")
         form_frame.pack(pady=10, padx=50, fill="x")
-        
-        ctk.CTkLabel(form_frame, text="Fecha:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        ctk.CTkLabel(form_frame, text="Fecha:").grid(row=0, column=0, padx=10, pady=8, sticky="w")
         self.entry_fecha = DateEntry(form_frame, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='dd/mm/yyyy')
-        self.entry_fecha.grid(row=0, column=1, padx=10, pady=10, sticky="w")
-        
-        ctk.CTkLabel(form_frame, text="Número de Recibo:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        self.entry_fecha.grid(row=0, column=1, padx=10, pady=8, sticky="w")
+
+        ctk.CTkLabel(form_frame, text="Número de Recibo:").grid(row=1, column=0, padx=10, pady=8, sticky="w")
         self.entry_recibo = ctk.CTkEntry(form_frame, width=200)
-        self.entry_recibo.grid(row=1, column=1, padx=10, pady=10, sticky="w")
-        
-        # Sugerir recibo basado en el archivo maestro
-        self.btn_refresh = ctk.CTkButton(form_frame, text="Actualizar N°", width=100, command=self.sugerir_numero_recibo)
-        self.btn_refresh.grid(row=1, column=2, padx=10, pady=10)
-        
-        ctk.CTkLabel(form_frame, text="Valor numérico ($):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        self.entry_recibo.grid(row=1, column=1, padx=10, pady=8, sticky="w")
+        self.btn_refresh = ctk.CTkButton(form_frame, text="Actualizar N°", width=110, command=self.sugerir_numero_recibo)
+        self.btn_refresh.grid(row=1, column=2, padx=10, pady=8)
+
+        ctk.CTkLabel(form_frame, text="Valor numérico ($):").grid(row=2, column=0, padx=10, pady=8, sticky="w")
         self.entry_valor = ctk.CTkEntry(form_frame, width=200)
-        self.entry_valor.grid(row=2, column=1, padx=10, pady=10, sticky="w")
-        
-        ctk.CTkLabel(form_frame, text="Pagado a (Beneficiario):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
+        self.entry_valor.grid(row=2, column=1, padx=10, pady=8, sticky="w")
+
+        ctk.CTkLabel(form_frame, text="Pagado a (Beneficiario):").grid(row=3, column=0, padx=10, pady=8, sticky="w")
         self.entry_beneficiario = ctk.CTkEntry(form_frame, width=400)
-        self.entry_beneficiario.grid(row=3, column=1, padx=10, pady=10, sticky="w")
-        
-        ctk.CTkLabel(form_frame, text="Concepto:").grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        self.entry_beneficiario.grid(row=3, column=1, padx=10, pady=8, sticky="w")
+
+        ctk.CTkLabel(form_frame, text="Concepto:").grid(row=4, column=0, padx=10, pady=8, sticky="w")
         self.entry_concepto = ctk.CTkEntry(form_frame, width=400)
-        self.entry_concepto.grid(row=4, column=1, padx=10, pady=10, sticky="w")
-        
-        self.btn_generar_manual = ctk.CTkButton(self.tab_manual, text="Agregar e Imprimir Recibo Único", command=self.generar_manual, height=45, fg_color="darkblue", hover_color="#000080")
-        self.btn_generar_manual.pack(pady=30)
-        
+        self.entry_concepto.grid(row=4, column=1, padx=10, pady=8, sticky="w")
+
+        self.btn_generar_manual = ctk.CTkButton(self.tab_manual, text="Agregar e Imprimir Recibo Único",
+                                                command=self.generar_manual, height=45,
+                                                fg_color="darkblue", hover_color="#000080")
+        self.btn_generar_manual.pack(pady=20)
         self.lbl_status_manual = ctk.CTkLabel(self.tab_manual, text="", text_color="gray")
-        self.lbl_status_manual.pack(pady=5)
-        
-        # Llamar sugerencia inicialmente de forma segura (sincrónicamente)
+        self.lbl_status_manual.pack(pady=4)
+
         self.sugerir_numero_recibo()
 
+    # ─────────────────────────────── HELPERS ──────────────────────────────────
+    def _short(self, path):
+        if not path:
+            return "⚠ No seleccionada"
+        return f"✅ {os.path.basename(path)}"
+
+    def _sources_summary(self):
+        if not self.source_paths:
+            return "⚠ Ningún archivo seleccionado"
+        return f"✅ {len(self.source_paths)} archivo(s): " + ", ".join(os.path.basename(p) for p in self.source_paths)
+
+    def _persist(self):
+        save_config({"template_path": self.template_path.get(), "source_paths": self.source_paths})
+
+    def cargar_plantilla(self):
+        ruta = filedialog.askopenfilename(title="Seleccionar Plantilla Excel",
+                                          filetypes=(("Excel", "*.xlsx *.xls"), ("Todos", "*.*")))
+        if ruta:
+            self.template_path.set(ruta)
+            self.lbl_template.configure(text=self._short(ruta))
+            self._persist()
+
+    def cargar_fuentes(self):
+        rutas = filedialog.askopenfilenames(title="Seleccionar Archivos de Datos",
+                                             filetypes=(("Excel y CSV", "*.xlsx *.csv"), ("Todos", "*.*")))
+        if rutas:
+            nuevas = [r for r in rutas if r not in self.source_paths]
+            self.source_paths.extend(nuevas)
+            self.lbl_sources.configure(text=self._sources_summary())
+            self._persist()
+
+    def limpiar_fuentes(self):
+        self.source_paths = []
+        self.lbl_sources.configure(text=self._sources_summary())
+        self._persist()
+
+    # ─────────────────────────────── MASTER INFO ──────────────────────────────
     def get_master_info(self):
-        """Escanea el archivo Formato_Caja_Menor_Logistica_Delfin.xlsx para saber dónde seguir escribiendo"""
         if not WIN32_AVAILABLE:
             return 0, 0
-            
         pythoncom.CoInitialize()
         excel = win32com.client.Dispatch("Excel.Application")
         excel.Visible = False
@@ -180,32 +235,23 @@ class CajaMenorApp(ctk.CTk):
         try:
             wb = excel.Workbooks.Open(TARGET_PATH)
             ws = wb.ActiveSheet
-            
             max_recibo = 0
             next_block_idx = 0
             i = 0
-            
             while True:
-                # Cada bloque mide 25 filas. La celda del N de recibo es la fila 5 relativa.
                 cell_val = ws.Cells(5 + i * 25, 4).Value
                 cell_str = str(cell_val).strip() if cell_val is not None else ""
-                
                 if cell_val is None or cell_str == "" or "_________________________" in cell_str or cell_str == "Número de Recibo:":
                     next_block_idx = i
                     break
-                    
-                if i > 500: # Salvaguarda contra bucles infinitos
+                if i > 500:
                     break
-                    
-                # Extraer número
                 nums = re.findall(r'\d+', cell_str)
                 if nums:
                     num = int(nums[-1])
                     if num > max_recibo:
                         max_recibo = num
-                
                 i += 1
-                
             wb.Close(False)
             return next_block_idx, max_recibo
         except Exception as e:
@@ -231,41 +277,29 @@ class CajaMenorApp(ctk.CTk):
         finally:
             self.btn_refresh.configure(state="normal")
 
-    def seleccionar_archivos(self):
-        rutas = filedialog.askopenfilenames(
-            title="Seleccionar Archivos de Datos",
-            filetypes=(("Excel y CSV", "*.xlsx *.csv"), ("Todos los archivos", "*.*"))
-        )
-        if rutas:
-            self.archivos_seleccionados = list(rutas)
-            self.txt_archivos.configure(state="normal")
-            self.txt_archivos.delete("0.0", "end")
-            self.txt_archivos.insert("0.0", "\n".join(self.archivos_seleccionados))
-            self.txt_archivos.configure(state="disabled")
-
+    # ─────────────────────────────── DATA PROCESSING ──────────────────────────
     def procesar_automatico(self):
-        archivos = os.listdir('.')
-        archivos_bancolombia = [os.path.abspath(f) for f in archivos if 'cuenta_bancolombia' in f.lower() and f.endswith('.xlsx') and not f.startswith('~') and 'formato' not in f.lower() and 'reporte' not in f.lower() and 'recibo' not in f.lower()]
-        archivos_caja = [os.path.abspath(f) for f in archivos if 'caja_menor' in f.lower() and f.endswith('.xlsx') and not f.startswith('~') and 'formato' not in f.lower() and 'reporte' not in f.lower() and 'recibo' not in f.lower()]
-        
-        rutas = archivos_bancolombia + archivos_caja
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.getcwd()
+        archivos = os.listdir(script_dir)
+        ban = [os.path.join(script_dir, f) for f in archivos
+               if 'cuenta_bancolombia' in f.lower() and f.endswith('.xlsx')
+               and not f.startswith('~') and 'formato' not in f.lower()]
+        caja = [os.path.join(script_dir, f) for f in archivos
+                if 'caja_menor' in f.lower() and f.endswith('.xlsx')
+                and not f.startswith('~') and 'formato' not in f.lower()]
+        rutas = ban + caja
         if not rutas:
-            messagebox.showerror("Error", "No se encontraron archivos de 'cuenta_bancolombia' o 'caja_menor' en la carpeta raíz.")
+            messagebox.showerror("Error", "No se encontraron archivos de Bancolombia o Caja Menor en la carpeta.")
             return
-            
-        self.archivos_seleccionados = rutas
-        self.txt_archivos.configure(state="normal")
-        self.txt_archivos.delete("0.0", "end")
-        self.txt_archivos.insert("0.0", "\n".join(self.archivos_seleccionados))
-        self.txt_archivos.configure(state="disabled")
-        
+        self.source_paths = rutas
+        self.lbl_sources.configure(text=self._sources_summary())
+        self._persist()
         self.generar_masivo()
 
     def parse_descripcion(self, desc):
         desc_clean = str(desc).strip()
         desc_lower = desc_clean.lower()
         words = desc_clean.split()
-        
         if len(words) >= 3:
             concepto = " ".join(words[:2]).capitalize()
             beneficiario = " ".join(words[2:]).title()
@@ -275,83 +309,67 @@ class CajaMenorApp(ctk.CTk):
         else:
             concepto = desc_clean.capitalize()
             beneficiario = "Portador"
-            
-        # Reglas de negocio para sobreescribir concepto
         if 'pago seguro' in desc_lower or 'pagos seguro' in desc_lower:
             concepto = "Pago Seguros Turbos"
         if 'finazauto' in desc_lower or 'finanzauto' in desc_lower:
             concepto = "Pagos Cuotas Turbo"
-            
         return concepto, beneficiario
 
     def procesar_datos_masivos(self):
-        if not self.archivos_seleccionados:
-            messagebox.showwarning("Advertencia", "Por favor selecciona archivos primero.")
+        if not self.source_paths:
+            messagebox.showwarning("Advertencia", "Por favor selecciona archivos de datos primero.")
             return None
-        
         dfs = []
-        for ruta in self.archivos_seleccionados:
+        for ruta in self.source_paths:
             try:
-                if ruta.endswith('.xlsx') or ruta.endswith('.xls'):
+                if ruta.endswith(('.xlsx', '.xls')):
                     df = pd.read_excel(ruta)
                 elif ruta.endswith('.csv'):
                     df = pd.read_csv(ruta)
                 dfs.append(df)
             except Exception as e:
-                messagebox.showerror("Error", f"Error al leer {os.path.basename(ruta)}: {str(e)}")
+                messagebox.showerror("Error", f"Error al leer {os.path.basename(ruta)}: {e}")
                 return None
-                
         if not dfs:
             return None
-            
         master_df = pd.concat(dfs, ignore_index=True)
-        
         str_cols = master_df.select_dtypes(include=['object', 'string']).columns
         mask = pd.Series(False, index=master_df.index)
         for col in str_cols:
             col_str = master_df[col].astype(str).str.lower()
-            mask = mask | col_str.str.contains('transferencia', na=False)
-            mask = mask | col_str.str.contains('seguridad social', na=False)
-            mask = mask | col_str.str.contains('cuota de manejo', na=False)
-            mask = mask | col_str.str.contains('cuotas de manejo', na=False)
+            mask |= col_str.str.contains('transferencia', na=False)
+            mask |= col_str.str.contains('seguridad social', na=False)
+            mask |= col_str.str.contains('cuota de manejo', na=False)
+            mask |= col_str.str.contains('cuotas de manejo', na=False)
         master_df = master_df[~mask]
-        
         if 'Fecha' in master_df.columns:
             master_df['Fecha'] = pd.to_datetime(master_df['Fecha'], errors='coerce')
             master_df = master_df.sort_values(by='Fecha').reset_index(drop=True)
             master_df['Fecha'] = master_df['Fecha'].dt.strftime('%d/%m/%Y').fillna('')
-            
         desc_col = next((c for c in master_df.columns if 'descrip' in c.lower()), None)
-        if desc_col:
-            desc = master_df[desc_col].fillna('').astype(str)
-        else:
-            desc = pd.Series(['']*len(master_df))
-        
-        conceptos_beneficiarios = desc.apply(self.parse_descripcion)
-        master_df['Concepto'] = [cb[0] for cb in conceptos_beneficiarios]
-        master_df['Beneficiario'] = [cb[1] for cb in conceptos_beneficiarios]
-            
+        desc = master_df[desc_col].fillna('').astype(str) if desc_col else pd.Series([''] * len(master_df))
+        cb = desc.apply(self.parse_descripcion)
+        master_df['Concepto'] = [x[0] for x in cb]
+        master_df['Beneficiario'] = [x[1] for x in cb]
         return master_df
 
+    # ─────────────────────────────── FILL EXCEL ───────────────────────────────
     def llenar_datos_com(self, ws, start_row, datos):
         fecha = datos.get('Fecha', '')
         recibo = datos.get('Numero_Recibo', '')
         recibo_str = str(recibo).zfill(4) if str(recibo).isdigit() else str(recibo)
         beneficiario = datos.get('Beneficiario', '')
-        
         try:
             valor = float(datos.get('Valor', 0))
-            if pd.isna(valor): valor = 0
+            if pd.isna(valor):
+                valor = 0
         except Exception:
             valor = 0
-            
         concepto = datos.get('Concepto', '')
-        
         try:
             valor_letras = num2words(int(valor), lang='es').upper()
         except Exception:
             valor_letras = str(valor)
-            
         ws.Cells(start_row + 4, 1).Value = f"Fecha: {fecha}"
         ws.Cells(start_row + 4, 4).Value = f"Número de Recibo: {recibo_str}"
         ws.Cells(start_row + 6, 1).Value = f"pagado a: {beneficiario}"
@@ -360,59 +378,51 @@ class CajaMenorApp(ctk.CTk):
         ws.Cells(start_row + 9, 1).Value = f"Concepto: {concepto}"
         ws.Cells(start_row + 13, 1).Value = f"Valor (en letras): {valor_letras} PESOS M/CTE."
 
+    # ─────────────────────────────── MASIVO ───────────────────────────────────
     def generar_masivo(self):
         if not WIN32_AVAILABLE:
             messagebox.showerror("Error", "La librería win32com no está disponible.")
             return
-
+        tpl = self.template_path.get()
+        if not tpl or not os.path.exists(tpl):
+            messagebox.showerror("Error", "Selecciona una plantilla Excel válida primero (Paso 1).")
+            return
         df = self.procesar_datos_masivos()
         if df is None or df.empty:
             messagebox.showinfo("Información", "No se encontraron datos válidos para procesar.")
             return
-            
-        self.lbl_status_masivo.configure(text="Analizando formato maestro y agregando recibos... (Por favor espere)")
+        self.lbl_status_masivo.configure(text="Procesando... (Por favor espere)", text_color="gray")
         self.btn_generar_masivo.configure(state="disabled")
         self.update()
-        
-        # Ejecutar en segundo plano para no congelar la UI
-        threading.Thread(target=self._thread_generar_masivo, args=(df,), daemon=True).start()
+        threading.Thread(target=self._thread_generar_masivo, args=(df, tpl), daemon=True).start()
 
-    def _thread_generar_masivo(self, df):
+    def _thread_generar_masivo(self, df, tpl):
         pythoncom.CoInitialize()
         try:
+            if not os.path.exists(TARGET_PATH):
+                import shutil
+                shutil.copy(tpl, TARGET_PATH)
             next_block_idx, max_recibo = self.get_master_info()
-            
             excel = win32com.client.Dispatch("Excel.Application")
             excel.Visible = False
             excel.DisplayAlerts = False
-            
             wb = excel.Workbooks.Open(TARGET_PATH)
             ws = wb.ActiveSheet
-            
             template_rows = 25
-            
             for index, row in df.iterrows():
-                # Asignar número consecutivo al vuelo
                 row['Numero_Recibo'] = max_recibo + 1 + index
-                
                 start_row = 1 + (next_block_idx + index) * template_rows
                 if start_row > 1:
-                    # Copiar siempre el primer bloque (filas 1 a 25)
                     ws.Rows(f"1:{template_rows}").Copy(ws.Rows(f"{start_row}:{start_row + template_rows - 1}"))
-                    
                 self.llenar_datos_com(ws, start_row, row)
-                
-            # Sobrescribir el archivo original
             wb.Save()
             wb.Close(False)
-            
-            self.lbl_status_masivo.configure(text=f"Agregados exitosamente", text_color="green")
-            messagebox.showinfo("Éxito", f"Se agregaron {len(df)} recibos al archivo del escritorio:\n{TARGET_PATH}")
+            self.lbl_status_masivo.configure(text=f"✅ {len(df)} recibos generados exitosamente", text_color="green")
+            messagebox.showinfo("Éxito", f"Se generaron {len(df)} recibos:\n{TARGET_PATH}")
             os.startfile(TARGET_PATH)
-            
         except Exception as e:
-            self.lbl_status_masivo.configure(text="Error en generación", text_color="red")
-            messagebox.showerror("Error", f"Ocurrió un error: {str(e)}")
+            self.lbl_status_masivo.configure(text="❌ Error en generación", text_color="red")
+            messagebox.showerror("Error", f"Ocurrió un error: {e}")
         finally:
             try:
                 excel.Quit()
@@ -420,86 +430,68 @@ class CajaMenorApp(ctk.CTk):
                 pass
             pythoncom.CoUninitialize()
             self.btn_generar_masivo.configure(state="normal")
-        
-        # Actualizar la sugerencia de la tab manual
         self.sugerir_numero_recibo()
 
+    # ─────────────────────────────── MANUAL ───────────────────────────────────
     def generar_manual(self):
         if not WIN32_AVAILABLE:
             messagebox.showerror("Error", "La librería win32com no está disponible.")
             return
-
+        tpl = self.template_path.get()
+        if not tpl or not os.path.exists(tpl):
+            messagebox.showerror("Error", "Selecciona una plantilla Excel válida primero.")
+            return
         fecha = self.entry_fecha.get()
         recibo = self.entry_recibo.get()
         valor_str = self.entry_valor.get().replace(',', '').replace('$', '').strip()
         beneficiario = self.entry_beneficiario.get()
         concepto = self.entry_concepto.get()
-        
         if not all([fecha, recibo, valor_str, beneficiario, concepto]):
             messagebox.showwarning("Advertencia", "Por favor complete todos los campos.")
             return
-            
         try:
             valor = float(valor_str)
         except ValueError:
             messagebox.showerror("Error", "El valor debe ser numérico.")
             return
-            
-        self.lbl_status_manual.configure(text="Agregando al maestro y generando PDF...")
+        self.lbl_status_manual.configure(text="Generando...", text_color="gray")
         self.update()
-        
-        datos = {
-            'Fecha': fecha,
-            'Numero_Recibo': recibo,
-            'Beneficiario': beneficiario,
-            'Valor': valor,
-            'Concepto': concepto
-        }
-        
-        pdf_path = os.path.abspath(f"Recibo_Caja_Menor_{recibo}.pdf")
-        
+        datos = {'Fecha': fecha, 'Numero_Recibo': recibo, 'Beneficiario': beneficiario,
+                 'Valor': valor, 'Concepto': concepto}
+        pdf_path = os.path.join(get_desktop_path(), f"Recibo_Caja_Menor_{recibo}.pdf")
         try:
-            next_block_idx, max_recibo = self.get_master_info()
-            
+            if not os.path.exists(TARGET_PATH):
+                import shutil
+                shutil.copy(tpl, TARGET_PATH)
+            next_block_idx, _ = self.get_master_info()
             excel = win32com.client.Dispatch("Excel.Application")
             excel.Visible = False
             excel.DisplayAlerts = False
-            
             wb = excel.Workbooks.Open(TARGET_PATH)
             ws = wb.ActiveSheet
-            
             template_rows = 25
             start_row = 1 + next_block_idx * template_rows
-            
             if start_row > 1:
                 ws.Rows(f"1:{template_rows}").Copy(ws.Rows(f"{start_row}:{start_row + template_rows - 1}"))
-                
             self.llenar_datos_com(ws, start_row, datos)
-            
-            # Guardar maestro
             wb.Save()
-            
-            # Exportar SÓLO este recibo a PDF
             ws.PageSetup.PrintArea = f"$A${start_row}:$F${start_row + 24}"
             ws.ExportAsFixedFormat(0, pdf_path)
             ws.PageSetup.PrintArea = ""
-            wb.Save() # Para quitar el area de impresion guardada
+            wb.Save()
             wb.Close(False)
-                
-            self.lbl_status_manual.configure(text=f"Agregado e impreso", text_color="green")
+            self.lbl_status_manual.configure(text="✅ Recibo generado y PDF listo", text_color="green")
             os.startfile(pdf_path)
-            
         except Exception as e:
-            self.lbl_status_manual.configure(text="Error en generación", text_color="red")
-            messagebox.showerror("Error", f"Error: {str(e)}")
+            self.lbl_status_manual.configure(text="❌ Error en generación", text_color="red")
+            messagebox.showerror("Error", f"Error: {e}")
         finally:
             try:
                 excel.Quit()
             except:
                 pass
-        
-        # Actualizar
         self.sugerir_numero_recibo()
+
 
 if __name__ == "__main__":
     app = CajaMenorApp()
