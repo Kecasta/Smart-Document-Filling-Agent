@@ -196,11 +196,17 @@ class CajaMenorApp(ctk.CTk):
 
     def _sources_summary(self):
         if not self.source_paths:
-            return "⚠ Ningún archivo seleccionado"
-        return f"✅ {len(self.source_paths)} archivo(s): " + ", ".join(os.path.basename(p) for p in self.source_paths)
+            return "Ningun archivo seleccionado"
+        lines = [f"  {i+1}. {os.path.basename(p)}" for i, p in enumerate(self.source_paths)]
+        header = f"{len(self.source_paths)} archivo(s) cargado(s):"
+        return header + "\n" + "\n".join(lines)
 
     def _persist(self):
         save_config({"template_path": self.template_path.get(), "source_paths": self.source_paths})
+
+    def _refresh_sources_ui(self):
+        """Actualiza el label de archivos en la UI."""
+        self.lbl_sources.configure(text=self._sources_summary())
 
     def cargar_plantilla(self):
         ruta = filedialog.askopenfilename(title="Seleccionar Plantilla Excel",
@@ -211,17 +217,22 @@ class CajaMenorApp(ctk.CTk):
             self._persist()
 
     def cargar_fuentes(self):
-        rutas = filedialog.askopenfilenames(title="Seleccionar Archivos de Datos",
-                                             filetypes=(("Excel y CSV", "*.xlsx *.csv"), ("Todos", "*.*")))
+        rutas = filedialog.askopenfilenames(
+            title="Seleccionar Archivos de Datos (multi-seleccion)",
+            filetypes=(("Excel y CSV", "*.xlsx *.xls *.csv"), ("Todos", "*.*"))
+        )
         if rutas:
             nuevas = [r for r in rutas if r not in self.source_paths]
+            duplicadas = len(rutas) - len(nuevas)
             self.source_paths.extend(nuevas)
-            self.lbl_sources.configure(text=self._sources_summary())
+            self._refresh_sources_ui()
             self._persist()
+            if duplicadas > 0:
+                messagebox.showinfo("Info", f"Se ignoraron {duplicadas} archivo(s) ya existentes en la lista.")
 
     def limpiar_fuentes(self):
         self.source_paths = []
-        self.lbl_sources.configure(text=self._sources_summary())
+        self._refresh_sources_ui()
         self._persist()
 
     # ─────────────────────────────── MASTER INFO ──────────────────────────────
@@ -292,7 +303,7 @@ class CajaMenorApp(ctk.CTk):
             messagebox.showerror("Error", "No se encontraron archivos de Bancolombia o Caja Menor en la carpeta.")
             return
         self.source_paths = rutas
-        self.lbl_sources.configure(text=self._sources_summary())
+        self._refresh_sources_ui()
         self._persist()
         self.generar_masivo()
 
@@ -320,19 +331,34 @@ class CajaMenorApp(ctk.CTk):
             messagebox.showwarning("Advertencia", "Por favor selecciona archivos de datos primero.")
             return None
         dfs = []
+        errores = []
         for ruta in self.source_paths:
             try:
                 if ruta.endswith(('.xlsx', '.xls')):
                     df = pd.read_excel(ruta)
                 elif ruta.endswith('.csv'):
-                    df = pd.read_csv(ruta)
+                    df = pd.read_csv(ruta, encoding='utf-8', encoding_errors='replace')
+                else:
+                    continue
+                df['__origen__'] = os.path.basename(ruta)  # Tag para trazabilidad
                 dfs.append(df)
             except Exception as e:
-                messagebox.showerror("Error", f"Error al leer {os.path.basename(ruta)}: {e}")
+                errores.append(f"{os.path.basename(ruta)}: {e}")
+        if errores:
+            messagebox.showerror("Error de lectura", "No se pudo leer:\n" + "\n".join(errores))
+            if not dfs:
                 return None
         if not dfs:
             return None
+
+        # 1. Unir todos los DataFrames
         master_df = pd.concat(dfs, ignore_index=True)
+
+        # 2. Eliminar filas exactamente iguales (duplicados reales entre archivos)
+        cols_data = [c for c in master_df.columns if c != '__origen__']
+        master_df = master_df.drop_duplicates(subset=cols_data).reset_index(drop=True)
+
+        # 3. Filtros de exclusion
         str_cols = master_df.select_dtypes(include=['object', 'string']).columns
         mask = pd.Series(False, index=master_df.index)
         for col in str_cols:
@@ -342,15 +368,26 @@ class CajaMenorApp(ctk.CTk):
             mask |= col_str.str.contains('cuota de manejo', na=False)
             mask |= col_str.str.contains('cuotas de manejo', na=False)
         master_df = master_df[~mask]
-        if 'Fecha' in master_df.columns:
-            master_df['Fecha'] = pd.to_datetime(master_df['Fecha'], errors='coerce')
-            master_df = master_df.sort_values(by='Fecha').reset_index(drop=True)
-            master_df['Fecha'] = master_df['Fecha'].dt.strftime('%d/%m/%Y').fillna('')
+
+        # 4. Ordenamiento cronologico estricto
+        fecha_col = next((c for c in master_df.columns if c.lower() == 'fecha'), None)
+        if fecha_col:
+            master_df[fecha_col] = pd.to_datetime(master_df[fecha_col], errors='coerce', dayfirst=True)
+            # Filas sin fecha van al final
+            master_df = master_df.sort_values(by=fecha_col, ascending=True, na_position='last').reset_index(drop=True)
+            master_df['Fecha'] = master_df[fecha_col].dt.strftime('%d/%m/%Y').fillna('Sin fecha')
+        elif 'Fecha' in master_df.columns:
+            master_df['Fecha'] = pd.to_datetime(master_df['Fecha'], errors='coerce', dayfirst=True)
+            master_df = master_df.sort_values(by='Fecha', ascending=True, na_position='last').reset_index(drop=True)
+            master_df['Fecha'] = master_df['Fecha'].dt.strftime('%d/%m/%Y').fillna('Sin fecha')
+
+        # 5. Extraer concepto y beneficiario
         desc_col = next((c for c in master_df.columns if 'descrip' in c.lower()), None)
         desc = master_df[desc_col].fillna('').astype(str) if desc_col else pd.Series([''] * len(master_df))
         cb = desc.apply(self.parse_descripcion)
         master_df['Concepto'] = [x[0] for x in cb]
         master_df['Beneficiario'] = [x[1] for x in cb]
+
         return master_df
 
     # ─────────────────────────────── FILL EXCEL ───────────────────────────────
