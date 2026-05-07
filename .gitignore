@@ -1,0 +1,30 @@
+# Build outputs
+/dist/
+/build/
+*.spec
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Excel temp/lock files
+~$*
+
+# Local test outputs
+test*.xlsx
+test*.pdf
+Recibo_Caja_Menor_*.pdf
+Reporte_Masivo_*.xlsx
+
+# Icon conversion
+recibo.ico
+
+# Env
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
