@@ -118,24 +118,22 @@ class CajaMenorApp(ctk.CTk):
         ctk.CTkLabel(card_d, text="2 · Archivos de Datos (Excel / CSV)", font=ctk.CTkFont(weight="bold")).pack(anchor="w", padx=12, pady=(8, 2))
         row_d = ctk.CTkFrame(card_d, fg_color="transparent")
         row_d.pack(fill="x", padx=12, pady=(0, 6))
-        self.lbl_sources = ctk.CTkLabel(row_d, text=self._sources_summary(), text_color="gray", anchor="w", wraplength=540)
+        self.lbl_sources = ctk.CTkLabel(row_d, text=self._sources_summary(), text_color="gray",
+                                        anchor="w", wraplength=500, justify="left")
         self.lbl_sources.pack(side="left", fill="x", expand=True)
         btns = ctk.CTkFrame(row_d, fg_color="transparent")
         btns.pack(side="right")
-        ctk.CTkButton(btns, text="📂 Agregar Archivos", width=150, command=self.cargar_fuentes).pack(pady=2)
-        ctk.CTkButton(btns, text="🗑 Limpiar", width=150, fg_color="gray", hover_color="#555",
+        ctk.CTkButton(btns, text="Agregar Archivos", width=160, command=self.cargar_fuentes).pack(pady=2)
+        ctk.CTkButton(btns, text="Limpiar Lista", width=160, fg_color="gray", hover_color="#555",
                       command=self.limpiar_fuentes).pack(pady=2)
 
-        # --- Acciones ---
-        actions = ctk.CTkFrame(self.tab_masivo, fg_color="transparent")
-        actions.pack(pady=10)
-        ctk.CTkButton(actions, text="⚡ Proceso Automático (Detectar archivos en carpeta)", height=42,
-                      fg_color="#b8860b", hover_color="#8b6508", font=ctk.CTkFont(weight="bold"),
-                      command=self.procesar_automatico).pack(pady=4)
-        self.btn_generar_masivo = ctk.CTkButton(actions, text="✅ Generar Recibos", height=42,
+        # --- Accion principal ---
+        self.btn_generar_masivo = ctk.CTkButton(self.tab_masivo,
+                                                text="Generar Recibos", height=48,
                                                 fg_color="green", hover_color="darkgreen",
+                                                font=ctk.CTkFont(size=15, weight="bold"),
                                                 command=self.generar_masivo)
-        self.btn_generar_masivo.pack(pady=4)
+        self.btn_generar_masivo.pack(pady=18)
 
         self.lbl_status_masivo = ctk.CTkLabel(self.tab_masivo, text="", text_color="gray")
         self.lbl_status_masivo.pack(pady=4)
@@ -289,24 +287,6 @@ class CajaMenorApp(ctk.CTk):
             self.btn_refresh.configure(state="normal")
 
     # ─────────────────────────────── DATA PROCESSING ──────────────────────────
-    def procesar_automatico(self):
-        script_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.getcwd()
-        archivos = os.listdir(script_dir)
-        ban = [os.path.join(script_dir, f) for f in archivos
-               if 'cuenta_bancolombia' in f.lower() and f.endswith('.xlsx')
-               and not f.startswith('~') and 'formato' not in f.lower()]
-        caja = [os.path.join(script_dir, f) for f in archivos
-                if 'caja_menor' in f.lower() and f.endswith('.xlsx')
-                and not f.startswith('~') and 'formato' not in f.lower()]
-        rutas = ban + caja
-        if not rutas:
-            messagebox.showerror("Error", "No se encontraron archivos de Bancolombia o Caja Menor en la carpeta.")
-            return
-        self.source_paths = rutas
-        self._refresh_sources_ui()
-        self._persist()
-        self.generar_masivo()
-
     def parse_descripcion(self, desc):
         desc_clean = str(desc).strip()
         desc_lower = desc_clean.lower()
@@ -369,17 +349,21 @@ class CajaMenorApp(ctk.CTk):
             mask |= col_str.str.contains('cuotas de manejo', na=False)
         master_df = master_df[~mask]
 
-        # 4. Ordenamiento cronologico estricto
+        # 4. Sanitizacion y ordenamiento cronologico estricto (DD/MM/YYYY)
         fecha_col = next((c for c in master_df.columns if c.lower() == 'fecha'), None)
+        if not fecha_col and 'Fecha' in master_df.columns:
+            fecha_col = 'Fecha'
         if fecha_col:
             master_df[fecha_col] = pd.to_datetime(master_df[fecha_col], errors='coerce', dayfirst=True)
-            # Filas sin fecha van al final
-            master_df = master_df.sort_values(by=fecha_col, ascending=True, na_position='last').reset_index(drop=True)
-            master_df['Fecha'] = master_df[fecha_col].dt.strftime('%d/%m/%Y').fillna('Sin fecha')
-        elif 'Fecha' in master_df.columns:
-            master_df['Fecha'] = pd.to_datetime(master_df['Fecha'], errors='coerce', dayfirst=True)
-            master_df = master_df.sort_values(by='Fecha', ascending=True, na_position='last').reset_index(drop=True)
-            master_df['Fecha'] = master_df['Fecha'].dt.strftime('%d/%m/%Y').fillna('Sin fecha')
+            # Eliminar filas con fechas nulas o corruptas (filtro de integridad)
+            filas_antes = len(master_df)
+            master_df = master_df.dropna(subset=[fecha_col]).reset_index(drop=True)
+            filas_eliminadas = filas_antes - len(master_df)
+            if filas_eliminadas > 0:
+                print(f"Sanitizacion: {filas_eliminadas} fila(s) eliminadas por fecha invalida/nula.")
+            # Orden ascendente estricto
+            master_df = master_df.sort_values(by=fecha_col, ascending=True).reset_index(drop=True)
+            master_df['Fecha'] = master_df[fecha_col].dt.strftime('%d/%m/%Y')
 
         # 5. Extraer concepto y beneficiario
         desc_col = next((c for c in master_df.columns if 'descrip' in c.lower()), None)
