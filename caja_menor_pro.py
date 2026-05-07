@@ -370,10 +370,13 @@ class CajaMenorApp(ctk.CTk):
                 errors='coerce'
             ).fillna(0)
 
-        # 4. Sanitizacion de fechas y ordenamiento cronologico (DD/MM/YYYY)
+        # 4. Sanitizacion de fechas y ordenamiento cronologico
+        #    Formato fuente: YYYY-MM-DD (ISO 8601) — pandas lo detecta nativamente
         fecha_col = next((c for c in master_df.columns if c.lower() == 'fecha'), None)
         if fecha_col:
-            master_df[fecha_col] = pd.to_datetime(master_df[fecha_col], errors='coerce', dayfirst=True)
+            raw_sample = str(master_df[fecha_col].dropna().iloc[0]) if master_df[fecha_col].notna().any() else ''
+            self._log(f"Formato de fecha detectado (muestra): {raw_sample}")
+            master_df[fecha_col] = pd.to_datetime(master_df[fecha_col], errors='coerce')
             nulas = master_df[fecha_col].isna().sum()
             if nulas > 0:
                 self._log(f"Fechas invalidas/nulas descartadas: {nulas}")
