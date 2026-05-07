@@ -25,6 +25,16 @@ Este agente de escritorio utiliza **Python y COM Automation** para interactuar d
 
 ---
 
+## 🚀 Guía de Uso Rápido
+
+Para que el agente haga su magia, solo debes seguir estos 3 pasos:
+
+1. **Seleccionar Plantilla:** Haz clic en el botón **📂 Seleccionar Plantilla** y elige tu archivo Excel (el formato oficial donde quieres que se vuelquen los datos). El agente recordará esta ruta para la próxima vez.
+2. **Cargar Datos:** Haz clic en **📂 Agregar Archivos**. Puedes seleccionar uno o varios archivos (Excel/CSV) al tiempo. El agente los mezclará y ordenará cronológicamente de forma automática.
+3. **Generar:** Presiona el botón de acción. Verás en el **Panel de Log** cómo el sistema procesa los registros. Al finalizar, tus recibos PDF y el libro maestro estarán listos en tu Escritorio.
+
+---
+
 ## 📊 Caso de Éxito: Optimización de Tesorería (Logística Delfín S.A.S.)
 
 En este escenario real, el agente automatizó la gestión de caja menor:
@@ -77,16 +87,23 @@ python caja_menor_pro.py
 
 > **Requisito del sistema:** Microsoft Excel instalado (requerido por `win32com` para la generación de documentos).
 
-### Generar el ejecutable .exe
+### Generar el ejecutable .exe (V2)
 
-```bash
-pyinstaller --noconfirm --onefile --windowed \
-  --name "Agente_Caja_Menor" --icon "recibo.ico" \
-  --add-data "Formato_Caja_Menor_Logistica_Delfin.xlsx;." \
-  --add-data "recibo.ico;." --add-data "recibo.png;." \
-  --hidden-import "win32com" --hidden-import "win32com.client" \
-  --hidden-import "pythoncom" --hidden-import "pywintypes" --hidden-import "winreg" \
-  --collect-data "customtkinter" --collect-data "tkcalendar" \
+```powershell
+pyinstaller --noconfirm --onefile --windowed `
+  --name "Smart_Doc_Agent_V2" `
+  --icon "recibo.ico" `
+  --add-data "recibo.ico;." `
+  --add-data "recibo.png;." `
+  --hidden-import "win32com" `
+  --hidden-import "win32com.client" `
+  --hidden-import "pythoncom" `
+  --hidden-import "babel.numbers" `
+  --hidden-import "num2words" `
+  --hidden-import "pandas" `
+  --hidden-import "openpyxl" `
+  --collect-data "customtkinter" `
+  --collect-data "tkcalendar" `
   caja_menor_pro.py
 ```
 
@@ -112,5 +129,7 @@ Ingeniero de Sistemas | Especialista en Automatización de Procesos e IA
 [![GitHub](https://img.shields.io/badge/GitHub-Kecasta-black?style=flat&logo=github)](https://github.com/Kecasta)
 
 ---
+
+> 💡 **Nota Técnica:** Esta aplicación es un ejecutable autónomo (.exe). No requiere instalación de Python en el equipo destino, solo necesita que Microsoft Excel esté instalado para utilizar el motor de automatización nativo. Privacidad garantizada: El procesamiento es 100% offline.
 
 *Desarrollado con Python 3.x | Windows 10/11 | Microsoft Excel*
