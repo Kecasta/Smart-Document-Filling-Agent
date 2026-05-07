@@ -133,10 +133,17 @@ class CajaMenorApp(ctk.CTk):
                                                 fg_color="green", hover_color="darkgreen",
                                                 font=ctk.CTkFont(size=15, weight="bold"),
                                                 command=self.generar_masivo)
-        self.btn_generar_masivo.pack(pady=18)
+        self.btn_generar_masivo.pack(pady=14)
 
         self.lbl_status_masivo = ctk.CTkLabel(self.tab_masivo, text="", text_color="gray")
-        self.lbl_status_masivo.pack(pady=4)
+        self.lbl_status_masivo.pack(pady=2)
+
+        # --- Debug Log ---
+        ctk.CTkLabel(self.tab_masivo, text="Log de Procesamiento:",
+                     font=ctk.CTkFont(size=11, weight="bold"), anchor="w").pack(anchor="w", padx=32, pady=(6, 0))
+        self.txt_log = ctk.CTkTextbox(self.tab_masivo, width=800, height=100, font=ctk.CTkFont(size=11))
+        self.txt_log.pack(padx=30, pady=(2, 8))
+        self.txt_log.configure(state="disabled")
 
     # ─────────────────────────────── TAB MANUAL ───────────────────────────────
     def setup_tab_manual(self):
@@ -287,9 +294,16 @@ class CajaMenorApp(ctk.CTk):
             self.btn_refresh.configure(state="normal")
 
     # ─────────────────────────────── DATA PROCESSING ──────────────────────────
+    def _log(self, msg):
+        """Escribe una linea en el panel de debug."""
+        self.txt_log.configure(state="normal")
+        self.txt_log.insert("end", msg + "\n")
+        self.txt_log.see("end")
+        self.txt_log.configure(state="disabled")
+
     def parse_descripcion(self, desc):
+        """Extrae concepto y beneficiario de forma generica (sin reglas de negocio)."""
         desc_clean = str(desc).strip()
-        desc_lower = desc_clean.lower()
         words = desc_clean.split()
         if len(words) >= 3:
             concepto = " ".join(words[:2]).capitalize()
@@ -300,16 +314,21 @@ class CajaMenorApp(ctk.CTk):
         else:
             concepto = desc_clean.capitalize()
             beneficiario = "Portador"
-        if 'pago seguro' in desc_lower or 'pagos seguro' in desc_lower:
-            concepto = "Pago Seguros Turbos"
-        if 'finazauto' in desc_lower or 'finanzauto' in desc_lower:
-            concepto = "Pagos Cuotas Turbo"
         return concepto, beneficiario
 
     def procesar_datos_masivos(self):
         if not self.source_paths:
             messagebox.showwarning("Advertencia", "Por favor selecciona archivos de datos primero.")
             return None
+
+        # Limpiar log
+        self.txt_log.configure(state="normal")
+        self.txt_log.delete("0.0", "end")
+        self.txt_log.configure(state="disabled")
+
+        archivos_nombres = [os.path.basename(p) for p in self.source_paths]
+        self._log(f"Archivos detectados: {archivos_nombres}")
+
         dfs = []
         errores = []
         for ruta in self.source_paths:
@@ -320,7 +339,8 @@ class CajaMenorApp(ctk.CTk):
                     df = pd.read_csv(ruta, encoding='utf-8', encoding_errors='replace')
                 else:
                     continue
-                df['__origen__'] = os.path.basename(ruta)  # Tag para trazabilidad
+                self._log(f"  -> {os.path.basename(ruta)}: {len(df)} filas leidas")
+                df['__origen__'] = os.path.basename(ruta)
                 dfs.append(df)
             except Exception as e:
                 errores.append(f"{os.path.basename(ruta)}: {e}")
@@ -333,37 +353,38 @@ class CajaMenorApp(ctk.CTk):
 
         # 1. Unir todos los DataFrames
         master_df = pd.concat(dfs, ignore_index=True)
+        total_bruto = len(master_df)
 
-        # 2. Eliminar filas exactamente iguales (duplicados reales entre archivos)
+        # 2. Eliminar duplicados exactos entre archivos
         cols_data = [c for c in master_df.columns if c != '__origen__']
         master_df = master_df.drop_duplicates(subset=cols_data).reset_index(drop=True)
+        dupes = total_bruto - len(master_df)
+        if dupes > 0:
+            self._log(f"Duplicados eliminados: {dupes}")
 
-        # 3. Filtros de exclusion
-        str_cols = master_df.select_dtypes(include=['object', 'string']).columns
-        mask = pd.Series(False, index=master_df.index)
-        for col in str_cols:
-            col_str = master_df[col].astype(str).str.lower()
-            mask |= col_str.str.contains('transferencia', na=False)
-            mask |= col_str.str.contains('seguridad social', na=False)
-            mask |= col_str.str.contains('cuota de manejo', na=False)
-            mask |= col_str.str.contains('cuotas de manejo', na=False)
-        master_df = master_df[~mask]
+        # 3. Normalizar valores numericos (columna Valor)
+        valor_col = next((c for c in master_df.columns if c.lower() == 'valor'), None)
+        if valor_col:
+            master_df[valor_col] = pd.to_numeric(
+                master_df[valor_col].astype(str).str.replace(r'[^\d.\-]', '', regex=True),
+                errors='coerce'
+            ).fillna(0)
 
-        # 4. Sanitizacion y ordenamiento cronologico estricto (DD/MM/YYYY)
+        # 4. Sanitizacion de fechas y ordenamiento cronologico (DD/MM/YYYY)
         fecha_col = next((c for c in master_df.columns if c.lower() == 'fecha'), None)
-        if not fecha_col and 'Fecha' in master_df.columns:
-            fecha_col = 'Fecha'
         if fecha_col:
             master_df[fecha_col] = pd.to_datetime(master_df[fecha_col], errors='coerce', dayfirst=True)
-            # Eliminar filas con fechas nulas o corruptas (filtro de integridad)
-            filas_antes = len(master_df)
-            master_df = master_df.dropna(subset=[fecha_col]).reset_index(drop=True)
-            filas_eliminadas = filas_antes - len(master_df)
-            if filas_eliminadas > 0:
-                print(f"Sanitizacion: {filas_eliminadas} fila(s) eliminadas por fecha invalida/nula.")
-            # Orden ascendente estricto
+            nulas = master_df[fecha_col].isna().sum()
+            if nulas > 0:
+                self._log(f"Fechas invalidas/nulas descartadas: {nulas}")
+                master_df = master_df.dropna(subset=[fecha_col]).reset_index(drop=True)
             master_df = master_df.sort_values(by=fecha_col, ascending=True).reset_index(drop=True)
+            fecha_min = master_df[fecha_col].iloc[0].strftime('%d/%m/%Y') if len(master_df) > 0 else '-'
+            fecha_max = master_df[fecha_col].iloc[-1].strftime('%d/%m/%Y') if len(master_df) > 0 else '-'
             master_df['Fecha'] = master_df[fecha_col].dt.strftime('%d/%m/%Y')
+            self._log(f"Rango de fechas procesado: {fecha_min} - {fecha_max}")
+
+        self._log(f"Total registros encontrados (sin filtros): {len(master_df)}")
 
         # 5. Extraer concepto y beneficiario
         desc_col = next((c for c in master_df.columns if 'descrip' in c.lower()), None)
