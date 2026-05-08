@@ -1,3 +1,11 @@
+"""
+Smart-Document-Filling-Agent v2.0
+Desarrollado por: Ing. Kevin Seryeit Castañeda Aldana
+Año: 2026
+"""
+__version__ = "2.0.1"
+__author__ = "Ing. Kevin Seryeit Castañeda Aldana"
+
 import os
 import sys
 import subprocess
