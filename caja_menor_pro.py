@@ -42,7 +42,8 @@ def save_config(cfg):
 # --- AUTO-INSTALL DEPENDENCIES ---
 def install_dependencies():
     deps = {'customtkinter': 'customtkinter', 'pandas': 'pandas', 'openpyxl': 'openpyxl',
-            'win32com': 'pywin32', 'num2words': 'num2words', 'tkcalendar': 'tkcalendar'}
+            'win32com': 'pywin32', 'num2words': 'num2words', 'tkcalendar': 'tkcalendar',
+            'requests': 'requests'}
     for module, package in deps.items():
         try:
             if module != 'win32com':
@@ -58,6 +59,9 @@ from tkinter import filedialog, messagebox
 import pandas as pd
 from num2words import num2words
 from tkcalendar import DateEntry
+import requests
+from datetime import datetime, timedelta
+import winreg
 
 try:
     import win32com.client
@@ -71,31 +75,120 @@ ctk.set_default_color_theme("blue")
 
 TARGET_PATH = os.path.join(get_desktop_path(), "recibos_de_caja.xlsx")
 
+# --- TRIAL CONFIG ---
+TRIAL_DAYS = 15
+REG_PATH = r"Software\Classes\CLSID\{B54F3741-5B07-4A96-971D-0128C0A31048}"
+
+def get_network_time():
+    """Obtiene la fecha actual de internet para evitar manipulacion del reloj local."""
+    try:
+        # Intentar con WorldTimeAPI
+        response = requests.get("http://worldtimeapi.org/api/timezone/Etc/UTC", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return datetime.fromisoformat(data['datetime'].replace('Z', '+00:00')).replace(tzinfo=None)
+    except:
+        pass
+    try:
+        # Fallback: Usar el header Date de Google
+        response = requests.head("http://www.google.com", timeout=5)
+        date_str = response.headers.get('Date')
+        if date_str:
+            # Formato: "Fri, 08 May 2026 16:15:00 GMT"
+            import email.utils
+            return datetime(*email.utils.parsedate(date_str)[:6])
+    except:
+        pass
+    return datetime.now()
+
+def check_trial_status():
+    """Verifica el estado del periodo de prueba en el Registro de Windows."""
+    now = get_network_time()
+    try:
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_PATH)
+        try:
+            val, _ = winreg.QueryValueEx(key, "Installed")
+            start_date = datetime.fromtimestamp(float(val))
+        except FileNotFoundError:
+            # Primera ejecucion
+            start_date = now
+            winreg.SetValueEx(key, "Installed", 0, winreg.REG_SZ, str(start_date.timestamp()))
+            winreg.SetValueEx(key, "LastRun", 0, winreg.REG_SZ, str(now.timestamp()))
+        
+        # Validar si el usuario atraso el reloj
+        try:
+            last_val, _ = winreg.QueryValueEx(key, "LastRun")
+            last_run = datetime.fromtimestamp(float(last_val))
+            if now < last_run:
+                # El tiempo actual es anterior al ultimo uso registrado (sospechoso)
+                now = last_run
+            else:
+                winreg.SetValueEx(key, "LastRun", 0, winreg.REG_SZ, str(now.timestamp()))
+        except:
+            pass
+            
+        winreg.CloseKey(key)
+        
+        days_passed = (now - start_date).days
+        days_left = max(0, TRIAL_DAYS - days_passed)
+        is_expired = days_passed >= TRIAL_DAYS
+        
+        return is_expired, days_left
+    except Exception as e:
+        print(f"Trial Check Error: {e}")
+        return False, TRIAL_DAYS
+
 
 class CajaMenorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Logística Delfín S.A.S - Agente de Caja Menor")
-        self.geometry("900x700")
+        self.geometry("900x750")  # Aumentado un poco para el banner
         self.resizable(False, False)
 
         ico_path = os.path.join(BASE_DIR, "recibo.ico")
         if os.path.exists(ico_path):
             self.iconbitmap(ico_path)
 
+        # Trial Verification
+        self.is_expired, self.days_left = check_trial_status()
+
         # Load persisted config
         cfg = load_config()
         self.template_path = ctk.StringVar(value=cfg.get("template_path", ""))
         self.source_paths = cfg.get("source_paths", [])
 
-        self.tabview = ctk.CTkTabview(self, width=860, height=660)
-        self.tabview.pack(padx=20, pady=20, fill="both", expand=True)
+        # --- Trial Banner ---
+        if self.is_expired:
+            self.banner = ctk.CTkFrame(self, fg_color="#8B0000", height=40)
+            self.banner.pack(fill="x", side="top")
+            ctk.CTkLabel(self.banner, text="🚨 PERIODO DE EVALUACIÓN FINALIZADO", 
+                         font=ctk.CTkFont(weight="bold"), text_color="white").pack(pady=5)
+            self.contact_lbl = ctk.CTkLabel(self, text="Contactar a Kevin Castañeda Aldana para activar licencia permanente",
+                                            text_color="red", font=ctk.CTkFont(size=12, slant="italic"))
+            self.contact_lbl.pack(side="bottom", pady=10)
+        else:
+            self.lbl_trial = ctk.CTkLabel(self, text=f"Días restantes de prueba: {self.days_left}",
+                                          font=ctk.CTkFont(size=11), text_color="#555")
+            self.lbl_trial.place(relx=0.98, rely=0.01, anchor="ne")
+
+        self.tabview = ctk.CTkTabview(self, width=860, height=620)
+        self.tabview.pack(padx=20, pady=(10, 20), fill="both", expand=True)
 
         self.tab_masivo = self.tabview.add("Procesamiento Masivo")
         self.tab_manual = self.tabview.add("Generador Manual")
 
         self.setup_tab_masivo()
         self.setup_tab_manual()
+
+        if self.is_expired:
+            self._disable_all_actions()
+
+    def _disable_all_actions(self):
+        """Desactiva los botones principales si el periodo expiro."""
+        messagebox.showwarning("Trial Expirado", "El periodo de evaluación de 15 días ha finalizado.\n\nPor favor contacte al desarrollador para obtener la versión completa.")
+        # Se desactivan los botones via setup o aqui directamente si ya existen
+        pass
 
     # ─────────────────────────────── TAB MASIVO ───────────────────────────────
     def setup_tab_masivo(self):
@@ -110,7 +203,10 @@ class CajaMenorApp(ctk.CTk):
         row_t.pack(fill="x", padx=12, pady=(0, 8))
         self.lbl_template = ctk.CTkLabel(row_t, text=self._short(self.template_path.get()), text_color="gray", anchor="w")
         self.lbl_template.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(row_t, text="📂 Seleccionar Plantilla", width=180, command=self.cargar_plantilla).pack(side="right")
+        self.btn_sel_template = ctk.CTkButton(row_t, text="📂 Seleccionar Plantilla", width=180, 
+                                               command=self.cargar_plantilla,
+                                               state="normal" if not self.is_expired else "disabled")
+        self.btn_sel_template.pack(side="right")
 
         # --- Fuente de datos card ---
         card_d = ctk.CTkFrame(self.tab_masivo)
@@ -123,15 +219,22 @@ class CajaMenorApp(ctk.CTk):
         self.lbl_sources.pack(side="left", fill="x", expand=True)
         btns = ctk.CTkFrame(row_d, fg_color="transparent")
         btns.pack(side="right")
-        ctk.CTkButton(btns, text="Agregar Archivos", width=160, command=self.cargar_fuentes).pack(pady=2)
-        ctk.CTkButton(btns, text="Limpiar Lista", width=160, fg_color="gray", hover_color="#555",
-                      command=self.limpiar_fuentes).pack(pady=2)
+        self.btn_add_files = ctk.CTkButton(btns, text="Agregar Archivos", width=160, 
+                                            command=self.cargar_fuentes,
+                                            state="normal" if not self.is_expired else "disabled")
+        self.btn_add_files.pack(pady=2)
+        self.btn_clear_files = ctk.CTkButton(btns, text="Limpiar Lista", width=160, fg_color="gray", hover_color="#555",
+                                              command=self.limpiar_fuentes,
+                                              state="normal" if not self.is_expired else "disabled")
+        self.btn_clear_files.pack(pady=2)
 
         # --- Accion principal ---
         self.btn_generar_masivo = ctk.CTkButton(self.tab_masivo,
                                                 text="Generar Recibos", height=48,
-                                                fg_color="green", hover_color="darkgreen",
+                                                fg_color="green" if not self.is_expired else "gray", 
+                                                hover_color="darkgreen" if not self.is_expired else "gray",
                                                 font=ctk.CTkFont(size=15, weight="bold"),
+                                                state="normal" if not self.is_expired else "disabled",
                                                 command=self.generar_masivo)
         self.btn_generar_masivo.pack(pady=14)
 
@@ -157,7 +260,10 @@ class CajaMenorApp(ctk.CTk):
         row_t.pack(fill="x", padx=12, pady=8)
         self.lbl_template_manual = ctk.CTkLabel(row_t, textvariable=self.template_path, text_color="gray", anchor="w")
         self.lbl_template_manual.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(row_t, text="📂 Plantilla", width=150, command=self.cargar_plantilla).pack(side="right")
+        self.btn_tpl_manual = ctk.CTkButton(row_t, text="📂 Plantilla", width=150, 
+                                             command=self.cargar_plantilla,
+                                             state="normal" if not self.is_expired else "disabled")
+        self.btn_tpl_manual.pack(side="right")
 
         form_frame = ctk.CTkFrame(self.tab_manual, fg_color="transparent")
         form_frame.pack(pady=10, padx=50, fill="x")
@@ -169,7 +275,9 @@ class CajaMenorApp(ctk.CTk):
         ctk.CTkLabel(form_frame, text="Número de Recibo:").grid(row=1, column=0, padx=10, pady=8, sticky="w")
         self.entry_recibo = ctk.CTkEntry(form_frame, width=200)
         self.entry_recibo.grid(row=1, column=1, padx=10, pady=8, sticky="w")
-        self.btn_refresh = ctk.CTkButton(form_frame, text="Actualizar N°", width=110, command=self.sugerir_numero_recibo)
+        self.btn_refresh = ctk.CTkButton(form_frame, text="Actualizar N°", width=110, 
+                                          command=self.sugerir_numero_recibo,
+                                          state="normal" if not self.is_expired else "disabled")
         self.btn_refresh.grid(row=1, column=2, padx=10, pady=8)
 
         ctk.CTkLabel(form_frame, text="Valor numérico ($):").grid(row=2, column=0, padx=10, pady=8, sticky="w")
@@ -186,7 +294,9 @@ class CajaMenorApp(ctk.CTk):
 
         self.btn_generar_manual = ctk.CTkButton(self.tab_manual, text="Agregar e Imprimir Recibo Único",
                                                 command=self.generar_manual, height=45,
-                                                fg_color="darkblue", hover_color="#000080")
+                                                fg_color="darkblue" if not self.is_expired else "gray", 
+                                                hover_color="#000080" if not self.is_expired else "gray",
+                                                state="normal" if not self.is_expired else "disabled")
         self.btn_generar_manual.pack(pady=20)
         self.lbl_status_manual = ctk.CTkLabel(self.tab_manual, text="", text_color="gray")
         self.lbl_status_manual.pack(pady=4)
