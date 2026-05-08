@@ -21,6 +21,7 @@ __pycache__/
 
 # ─── Runtime config (user paths — machine specific) ───────────
 caja_menor_config.json
+data_history.db
 
 # ─── Generated icons (built from recibo.png) ──────────────────
 recibo.ico
