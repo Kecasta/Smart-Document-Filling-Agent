@@ -5,4 +5,5 @@ pywin32>=306
 num2words>=0.5.13
 tkcalendar>=1.6.1
 Pillow>=10.0.0
+requests>=2.31.0
 pyinstaller>=6.0.0

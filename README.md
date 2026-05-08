@@ -1,42 +1,44 @@
 # Smart-Document-Filling-Agent (v2.0) 🤖📄
-### Automatización Universal de Documentos con Protección de Datos.
+### Automatización Universal de Documentos con Motor de Integridad.
 
-**Smart-Document-Filling-Agent** es una solución de escritorio diseñada para eliminar el 100% de la carga operativa en el llenado de formularios y documentos masivos.
+**Smart-Document-Filling-Agent** es una solución de escritorio de nivel profesional diseñada para eliminar la carga operativa en el llenado de formularios, recibos y documentos masivos.
 
-## 🌟 Nuevas Características (v2.0)
-* **Motor de Consolidación:** Selecciona múltiples archivos Excel/CSV y el sistema los mezcla y ordena cronológicamente (Sanitización DD/MM/YYYY).
-* **Universalidad:** Carga cualquier plantilla de Excel (Recibos, Contratos, Facturas) y deja que el agente haga el trabajo.
-* **Sistema Guardian:** Periodo de evaluación integrado de 15 días con persistencia en el Registro de Windows (Ideal para demos comerciales).
-* **Rutas Inteligentes:** Compatibilidad total con entornos OneDrive y Escritorios locales.
+## 🌟 Características de Vanguardia (v2.0)
+* **Motor de Consolidación Multifuente:** Capacidad para procesar y mezclar múltiples archivos Excel/CSV simultáneamente, con ordenamiento cronológico automático.
+* **Motor de Integridad de Datos (Anti-Duplicados):** Sistema inteligente basado en hashing SHA-256 que detecta registros procesados anteriormente. Evita errores contables y duplicidad de documentos.
+* **Universalidad de Plantillas:** Compatible con cualquier formato Excel. El agente mapea los datos y genera PDFs listos para imprimir.
+* **Sistema Guardian (Trial):** Periodo de evaluación integrado de 15 días con persistencia en el Registro de Windows y validación vía Network Time (Anti-fraude).
+* **Base de Datos Local:** Utiliza una base de datos SQLite ligera para mantener el historial de integridad sin necesidad de servidores externos.
 
-## 🚀 Guía de Usuario
+## 🚀 Guía de Uso Rápido
 1. **📂 Seleccionar Plantilla:** Carga el formato Excel que deseas llenar.
-2. **📂 Agregar Archivos:** Selecciona todas tus fuentes de datos. El sistema detectará automáticamente los registros (probado con 149+ registros).
-3. **⚙️ Generar:** El agente creará los PDFs y un libro maestro en tu escritorio en segundos.
+2. **📂 Agregar Archivos:** Selecciona tus fuentes de datos (Excel/CSV).
+3. **⚠️ Aviso de Duplicados:** Si el sistema detecta que un archivo contiene datos ya procesados anteriormente, te lanzará una alerta preventiva. Puedes elegir continuar o revisar tus fuentes para asegurar la integridad.
+4. **⚙️ Generar:** El agente creará los PDFs y actualizará el libro maestro en segundos.
 
 ---
 
-## 🛠️ Stack Tecnológico
-* **Core:** Python 3.10+
-* **Data Engine:** `pandas` & `win32com` (MS Excel Native)
-* **UI:** `customtkinter`
-* **Security:** `winreg` persistence & Network Time Validation
+## 🛠️ Especificaciones Técnicas
+* **Core:** Python 3.13+
+* **Persistencia:** SQLite3 & Windows Registry (CLSID mask)
+* **Motor de Automatización:** Microsoft Excel Native COM Integration (`win32com`)
+* **Seguridad:** SHA-256 Hashing para integridad de registros.
 
 ---
 
-## 📉 ¿Buscas optimizar la rentabilidad de tu negocio?
-Si tu equipo está atrapado en tareas repetitivas, estás perdiendo dinero.
+## 📉 Optimización de Procesos Contables
+Este agente transforma una jornada de 4 horas de llenado manual en un proceso de 30 segundos, garantizando un error humano de 0%.
 
-**¿Interesado en una licencia permanente?**
-Este software está bajo un modelo de evaluación. Para activaciones de licencias corporativas o personalizaciones, contacta a:
+**¿Interesado en una licencia permanente o personalización?**
+Este software está bajo un modelo de evaluación. Para activaciones corporativas, contacta a:
 
-**Kevin Seryeit Castañeda Aldana** | Ingeniero de Sistemas  
-Especialista en Automatización de Procesos e IA
+**Ing. Kevin Seryeit Castañeda Aldana** | Especialista en Automatización de Procesos e IA  
+*Soluciones de Software de Alto Impacto*
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=flat&logo=linkedin)](https://linkedin.com)
 [![GitHub](https://img.shields.io/badge/GitHub-Kecasta-black?style=flat&logo=github)](https://github.com/Kecasta)
 
 ---
-> 💡 **Nota Técnica:** Esta aplicación es un ejecutable autónomo (.exe) que incluye un periodo de evaluación de 15 días. Requiere Microsoft Excel instalado. Procesamiento 100% offline.
+> 💡 **Nota de Privacidad:** El procesamiento es 100% local. Los datos nunca salen de tu equipo. La validación de integridad se realiza mediante una base de datos local cifrada.
 
-*Desarrollado por Kevin Seryeit Castañeda Aldana | 2026*
+*Desarrollado por Ing. Kevin Seryeit Castañeda Aldana | 2026*

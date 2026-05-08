@@ -174,7 +174,7 @@ class HistoryManager:
 class CajaMenorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Logística Delfín S.A.S - Agente de Caja Menor")
+        self.title("Smart-Document-Filling-Agent v2.0 | Ing. Kevin Seryeit Castañeda Aldana")
         self.geometry("900x750")  # Aumentado un poco para el banner
         self.resizable(False, False)
 
@@ -218,6 +218,11 @@ class CajaMenorApp(ctk.CTk):
 
         if self.is_expired:
             self._disable_all_actions()
+
+        # --- Branding Footer ---
+        self.footer = ctk.CTkLabel(self, text="Desarrollado por Ing. Kevin Seryeit Castañeda Aldana - 2026",
+                                   font=ctk.CTkFont(size=10), text_color="gray")
+        self.footer.pack(side="bottom", pady=5)
 
     def _disable_all_actions(self):
         """Desactiva los botones principales si el periodo expiro."""
