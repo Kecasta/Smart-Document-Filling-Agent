@@ -98,6 +98,7 @@ pyinstaller --noconfirm --onefile --windowed `
   --hidden-import "win32com" `
   --hidden-import "win32com.client" `
   --hidden-import "pythoncom" `
+  --hidden-import "requests" `
   --hidden-import "babel.numbers" `
   --hidden-import "num2words" `
   --hidden-import "pandas" `
@@ -130,6 +131,6 @@ Ingeniero de Sistemas | Especialista en Automatización de Procesos e IA
 
 ---
 
-> 💡 **Nota Técnica:** Esta aplicación es un ejecutable autónomo (.exe). No requiere instalación de Python en el equipo destino, solo necesita que Microsoft Excel esté instalado para utilizar el motor de automatización nativo. Privacidad garantizada: El procesamiento es 100% offline.
+> 💡 **Nota Técnica:** Esta aplicación es un ejecutable autónomo (.exe) que incluye un **periodo de evaluación de 15 días**. No requiere instalación de Python en el equipo destino, solo necesita que Microsoft Excel esté instalado para utilizar el motor de automatización nativo. Privacidad garantizada: El procesamiento es 100% offline y la validación de trial utiliza el Registro de Windows y servidores de tiempo externos para mayor seguridad.
 
 *Desarrollado con Python 3.x | Windows 10/11 | Microsoft Excel*
