@@ -263,6 +263,14 @@ class CajaMenorApp(ctk.CTk):
                                               state="normal" if not self.is_expired else "disabled")
         self.btn_clear_files.pack(pady=2)
 
+        # --- Accion principal ---
+        self.btn_generar_masivo = ctk.CTkButton(self.tab_masivo,
+                                                text="Generar Recibos", height=48,
+                                                fg_color="green" if not self.is_expired else "gray", 
+                                                hover_color="darkgreen" if not self.is_expired else "gray",
+                                                font=ctk.CTkFont(size=15, weight="bold"),
+                                                state="normal" if not self.is_expired else "disabled",
+                                                command=self.generar_masivo)
         self.btn_generar_masivo.pack(pady=14)
 
         self.lbl_status_masivo = ctk.CTkLabel(self.tab_masivo, text="", text_color="gray")
