@@ -608,22 +608,34 @@ class CajaMenorApp(ctk.CTk):
         if not tpl or not os.path.exists(tpl):
             messagebox.showerror("Error", "Selecciona una plantilla Excel válida primero (Paso 1).")
             return
-        df = self.procesar_datos_masivos()
-        if df is None or df.empty:
-            messagebox.showinfo("Información", "No se encontraron datos válidos para procesar.")
-            return
-        self.lbl_status_masivo.configure(text="Procesando... (Por favor espere)", text_color="gray")
-        self.btn_generar_masivo.configure(state="disabled")
-        self.update()
-        threading.Thread(target=self._thread_generar_masivo, args=(df, tpl), daemon=True).start()
+        try:
+            df = self.procesar_datos_masivos()
+            if df is None or df.empty:
+                messagebox.showinfo("Información", "No se encontraron datos nuevos para procesar.")
+                return
+            self.lbl_status_masivo.configure(text="Procesando... (Por favor espere)", text_color="gray")
+            self.btn_generar_masivo.configure(state="disabled")
+            self.update()
+            threading.Thread(target=self._thread_generar_masivo, args=(df, tpl), daemon=True).start()
+        except Exception as e:
+            self._log(f"CRITICAL ERROR: {e}")
+            messagebox.showerror("Error Critico", f"Falla en el motor de procesamiento: {e}")
+            self.btn_generar_masivo.configure(state="normal")
 
     def _thread_generar_masivo(self, df, tpl):
+        self._log("Iniciando motor de automatización...")
         pythoncom.CoInitialize()
         try:
             if not os.path.exists(TARGET_PATH):
+                self._log("Creando libro maestro en escritorio...")
                 import shutil
                 shutil.copy(tpl, TARGET_PATH)
+            
+            self._log("Escaneando libro maestro para consecutivo...")
             next_block_idx, max_recibo = self.get_master_info()
+            self._log(f"Siguiente bloque: {next_block_idx}, Ultimo recibo: {max_recibo}")
+            
+            self._log("Conectando con Microsoft Excel...")
             excel = win32com.client.Dispatch("Excel.Application")
             excel.Visible = False
             excel.DisplayAlerts = False
@@ -636,12 +648,16 @@ class CajaMenorApp(ctk.CTk):
                 if start_row > 1:
                     ws.Rows(f"1:{template_rows}").Copy(ws.Rows(f"{start_row}:{start_row + template_rows - 1}"))
                 self.llenar_datos_com(ws, start_row, row)
+                if (index + 1) % 5 == 0:
+                    self._log(f"Procesados {index + 1} de {len(df)}...")
             wb.Save()
             wb.Close(False)
             
+            self._log("Guardando registros en historial persistente...")
             # Guardar hashes en el historial despues de proceso exitoso
             processed_hashes = df['record_hash'].tolist()
             self.history.add_records(processed_hashes)
+            self._log("✅ Historial actualizado.")
 
             self.lbl_status_masivo.configure(text=f"✅ {len(df)} recibos generados exitosamente", text_color="green")
             messagebox.showinfo("Éxito", f"Se generaron {len(df)} recibos:\n{TARGET_PATH}")
