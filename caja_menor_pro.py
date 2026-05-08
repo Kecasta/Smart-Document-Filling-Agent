@@ -62,6 +62,8 @@ from tkcalendar import DateEntry
 import requests
 from datetime import datetime, timedelta
 import winreg
+import sqlite3
+import hashlib
 
 try:
     import win32com.client
@@ -138,6 +140,36 @@ def check_trial_status():
         print(f"Trial Check Error: {e}")
         return False, TRIAL_DAYS
 
+HISTORY_DB = os.path.join(os.path.dirname(CONFIG_FILE), "data_history.db")
+
+class HistoryManager:
+    def __init__(self):
+        self.conn = sqlite3.connect(HISTORY_DB, check_same_thread=False)
+        self._create_table()
+
+    def _create_table(self):
+        with self.conn:
+            self.conn.execute("CREATE TABLE IF NOT EXISTS processed_records (record_hash TEXT PRIMARY KEY)")
+
+    def is_processed(self, record_hash):
+        cur = self.conn.cursor()
+        cur.execute("SELECT 1 FROM processed_records WHERE record_hash = ?", (record_hash,))
+        return cur.fetchone() is not None
+
+    def add_records(self, hashes):
+        with self.conn:
+            self.conn.executemany("INSERT OR IGNORE INTO processed_records (record_hash) VALUES (?)", [(h,) for h in hashes])
+
+    def reset_history(self):
+        with self.conn:
+            self.conn.execute("DELETE FROM processed_records")
+
+    @staticmethod
+    def generate_hash(row):
+        """Genera una huella digital para el registro basada en sus campos clave."""
+        raw_str = f"{row.get('Fecha','')}|{row.get('Beneficiario','')}|{row.get('Valor',0)}|{row.get('Concepto','')}"
+        return hashlib.sha256(raw_str.encode('utf-8', errors='replace')).hexdigest()
+
 
 class CajaMenorApp(ctk.CTk):
     def __init__(self):
@@ -152,6 +184,9 @@ class CajaMenorApp(ctk.CTk):
 
         # Trial Verification
         self.is_expired, self.days_left = check_trial_status()
+
+        # History Manager
+        self.history = HistoryManager()
 
         # Load persisted config
         cfg = load_config()
@@ -228,18 +263,23 @@ class CajaMenorApp(ctk.CTk):
                                               state="normal" if not self.is_expired else "disabled")
         self.btn_clear_files.pack(pady=2)
 
-        # --- Accion principal ---
-        self.btn_generar_masivo = ctk.CTkButton(self.tab_masivo,
-                                                text="Generar Recibos", height=48,
-                                                fg_color="green" if not self.is_expired else "gray", 
-                                                hover_color="darkgreen" if not self.is_expired else "gray",
-                                                font=ctk.CTkFont(size=15, weight="bold"),
-                                                state="normal" if not self.is_expired else "disabled",
-                                                command=self.generar_masivo)
         self.btn_generar_masivo.pack(pady=14)
 
         self.lbl_status_masivo = ctk.CTkLabel(self.tab_masivo, text="", text_color="gray")
         self.lbl_status_masivo.pack(pady=2)
+
+        # --- Boton Reset Historial ---
+        self.btn_reset_hist = ctk.CTkButton(self.tab_masivo, text="Reiniciar Historial de Duplicados", 
+                                            fg_color="transparent", text_color="gray", 
+                                            hover_color="#333", font=ctk.CTkFont(size=10),
+                                            width=180, height=20,
+                                            command=self.confirmar_reset_historial)
+        self.btn_reset_hist.pack(side="bottom", pady=5)
+
+    def confirmar_reset_historial(self):
+        if messagebox.askyesno("Confirmar", "¿Deseas borrar permanentemente el historial de registros procesados?\n\nEsto permitira volver a procesar registros antiguos."):
+            self.history.reset_history()
+            messagebox.showinfo("Hecho", "Historial de duplicados vaciado.")
 
         # --- Debug Log ---
         ctk.CTkLabel(self.tab_masivo, text="Log de Procesamiento:",
@@ -497,14 +537,32 @@ class CajaMenorApp(ctk.CTk):
             master_df['Fecha'] = master_df[fecha_col].dt.strftime('%d/%m/%Y')
             self._log(f"Rango de fechas procesado: {fecha_min} - {fecha_max}")
 
-        self._log(f"Total registros encontrados (sin filtros): {len(master_df)}")
-
         # 5. Extraer concepto y beneficiario
         desc_col = next((c for c in master_df.columns if 'descrip' in c.lower()), None)
         desc = master_df[desc_col].fillna('').astype(str) if desc_col else pd.Series([''] * len(master_df))
         cb = desc.apply(self.parse_descripcion)
         master_df['Concepto'] = [x[0] for x in cb]
         master_df['Beneficiario'] = [x[1] for x in cb]
+
+        self.history = HistoryManager() if not hasattr(self, 'history') else self.history
+        
+        # 6. Filtrado de Duplicados Historicos (Hashing)
+        total_inicial = len(master_df)
+        master_df['record_hash'] = master_df.apply(self.history.generate_hash, axis=1)
+        
+        # Identificar los que ya estan en DB
+        mask_dup = master_df['record_hash'].apply(self.history.is_processed)
+        dupes_hist = mask_dup.sum()
+        
+        if dupes_hist > 0:
+            messagebox.showwarning("Registros Duplicados Detectados", 
+                                   f"¡Atención!\nSe detectaron {dupes_hist} registros que ya han sido procesados anteriormente.\n\n"
+                                   "Estos serán omitidos para evitar duplicidad de recibos.")
+            master_df = master_df[~mask_dup].reset_index(drop=True)
+            
+        self._log(f"Registros totales detectados: {total_inicial}")
+        self._log(f"Duplicados historicos omitidos: {dupes_hist}")
+        self._log(f"Nuevos registros a procesar: {len(master_df)}")
 
         return master_df
 
@@ -572,6 +630,11 @@ class CajaMenorApp(ctk.CTk):
                 self.llenar_datos_com(ws, start_row, row)
             wb.Save()
             wb.Close(False)
+            
+            # Guardar hashes en el historial despues de proceso exitoso
+            processed_hashes = df['record_hash'].tolist()
+            self.history.add_records(processed_hashes)
+
             self.lbl_status_masivo.configure(text=f"✅ {len(df)} recibos generados exitosamente", text_color="green")
             messagebox.showinfo("Éxito", f"Se generaron {len(df)} recibos:\n{TARGET_PATH}")
             os.startfile(TARGET_PATH)
