@@ -39,4 +39,4 @@ Especialista en Automatización de Procesos e IA
 ---
 > 💡 **Nota Técnica:** Esta aplicación es un ejecutable autónomo (.exe) que incluye un periodo de evaluación de 15 días. Requiere Microsoft Excel instalado. Procesamiento 100% offline.
 
-*Desarrollado por Kecasta | 2026*
+*Desarrollado por Kevin Seryeit Castañeda Aldana | 2026*
